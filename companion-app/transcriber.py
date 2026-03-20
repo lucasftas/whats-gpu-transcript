@@ -103,7 +103,8 @@ class Transcriber:
         self._model_path = target
         self._emit("model_ready")
 
-    def transcribe(self, audio_bytes, filename="audio.ogg"):
+    def transcribe(self, audio_bytes, filename="audio.ogg", precision=None):
+        """Transcribe audio bytes. precision dict can override beam_size, best_of, temperature, patience."""
         tmp_path = None
         try:
             suffix = os.path.splitext(filename)[1] or ".ogg"
@@ -112,15 +113,32 @@ class Transcriber:
             with open(tmp_path, "wb") as f:
                 f.write(audio_bytes)
 
+            # Apply precision overrides
+            p = precision or {}
+            beam_size = p.get("beam_size", 5)
+            best_of = p.get("best_of", 5)
+            patience = p.get("patience", 1.0)
+
+            # Temperature can be a single float or a list for fallback
+            temperature = p.get("temperature", [0.0])
+            if isinstance(temperature, list) and len(temperature) == 1:
+                temperature = temperature[0]
+
+            logger.info(
+                "Transcribindo com beam=%d best_of=%d patience=%.1f temp=%s",
+                beam_size, best_of, patience, temperature,
+            )
+
             # Lock only for model access and transcribe call
             with self._lock:
                 self.ensure_model()
                 segments, info = self.model.transcribe(
                     tmp_path,
                     language="pt",
-                    beam_size=5,
-                    best_of=5,
-                    temperature=0.0,
+                    beam_size=beam_size,
+                    best_of=best_of,
+                    temperature=temperature,
+                    patience=patience,
                     vad_filter=True,
                     vad_parameters=dict(
                         min_silence_duration_ms=300,

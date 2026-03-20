@@ -251,6 +251,74 @@
 			color: #8696a0;
 			line-height: 1.5;
 		}
+
+		/* Precision slider */
+		.precision-section {
+			margin-bottom: 12px;
+			padding: 10px 12px;
+			background: #1f2c34;
+			border-radius: 8px;
+		}
+		.precision-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			margin-bottom: 8px;
+		}
+		.precision-title {
+			font-size: 12px;
+			font-weight: 600;
+			color: #8696a0;
+			text-transform: uppercase;
+			letter-spacing: 0.5px;
+		}
+		.precision-value {
+			font-size: 12px;
+			font-weight: 600;
+			color: #008069;
+		}
+		.precision-slider {
+			-webkit-appearance: none;
+			appearance: none;
+			width: 100%;
+			height: 6px;
+			border-radius: 3px;
+			background: linear-gradient(to right, #4caf50, #ff9800, #ef4146);
+			outline: none;
+			cursor: pointer;
+		}
+		.precision-slider::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			appearance: none;
+			width: 18px;
+			height: 18px;
+			border-radius: 50%;
+			background: #e9edef;
+			border: 2px solid #008069;
+			cursor: pointer;
+			box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+		}
+		.precision-labels {
+			display: flex;
+			justify-content: space-between;
+			margin-top: 4px;
+			font-size: 10px;
+			color: #8696a0;
+		}
+		.precision-desc {
+			font-size: 11px;
+			color: #8696a0;
+			margin-top: 6px;
+			line-height: 1.4;
+		}
+		.precision-warn {
+			font-size: 11px;
+			color: #ff9800;
+			margin-top: 6px;
+			line-height: 1.4;
+			display: none;
+		}
+		.precision-warn.visible { display: block; }
 		</style>
 	</head>
 	<body>
@@ -283,6 +351,21 @@
 		<div class="gpu-controls">
 			<button class="gpu-btn gpu-btn-load" id="btn-load" disabled>Subir Modelo na GPU</button>
 			<button class="gpu-btn gpu-btn-unload" id="btn-unload" disabled>Limpar GPU</button>
+		</div>
+
+		<div class="precision-section">
+			<div class="precision-header">
+				<span class="precision-title">Precisão</span>
+				<span class="precision-value" id="precision-value">Balanceado</span>
+			</div>
+			<input type="range" min="0" max="2" value="1" class="precision-slider" id="precision-slider">
+			<div class="precision-labels">
+				<span>Rápido</span>
+				<span>Balanceado</span>
+				<span>Máxima</span>
+			</div>
+			<div class="precision-desc" id="precision-desc">beam=5 · best_of=5 — Bom equilíbrio entre velocidade e precisão</div>
+			<div class="precision-warn" id="precision-warn"></div>
 		</div>
 
 		<div class="log-area" id="log-area"></div>

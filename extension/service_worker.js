@@ -2,6 +2,12 @@ const API_URL = "http://localhost:8765";
 const TRANSCRIBE_TIMEOUT = 300000; // 5 minutes
 const MAX_RETRIES = 1;
 
+const PRECISION_PRESETS = [
+	{ beam_size: 1, best_of: 1, temperature: [0.0], patience: 1.0 },
+	{ beam_size: 5, best_of: 5, temperature: [0.0], patience: 1.0 },
+	{ beam_size: 10, best_of: 10, temperature: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0], patience: 2.0 },
+];
+
 chrome.runtime.onMessage.addListener(async (request, sender) => {
 	const { id, audioBase64 } = request;
 	if (!id || !audioBase64) return;
@@ -31,6 +37,16 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
 	}
 	const blob = new Blob([bytes], { type: "audio/ogg" });
 
+	// Read precision setting
+	let precisionParams = PRECISION_PRESETS[1]; // default: Balanceado
+	try {
+		const stored = await chrome.storage.local.get("precisionLevel");
+		const level = stored.precisionLevel != null ? stored.precisionLevel : 1;
+		precisionParams = PRECISION_PRESETS[level] || PRECISION_PRESETS[1];
+	} catch (e) {
+		// use default
+	}
+
 	// Transcribe with retry
 	let lastError = null;
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -40,6 +56,7 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
 
 			const formData = new FormData();
 			formData.append("file", blob, "audio.ogg");
+			formData.append("precision", JSON.stringify(precisionParams));
 
 			const resp = await fetch(`${API_URL}/transcribe`, {
 				method: "POST",

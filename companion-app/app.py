@@ -258,8 +258,18 @@ def transcribe_audio():
     if not audio_bytes:
         return jsonify({"error": "Empty file"}), 400
 
+    # Parse precision parameters from form data
+    precision = None
+    precision_json = request.form.get("precision")
+    if precision_json:
+        try:
+            import json
+            precision = json.loads(precision_json)
+        except Exception:
+            pass
+
     try:
-        text = transcriber.transcribe(audio_bytes, filename=file.filename or "audio.ogg")
+        text = transcriber.transcribe(audio_bytes, filename=file.filename or "audio.ogg", precision=precision)
         on_status_change("idle")
         return jsonify({"text": text})
     except RuntimeError as e:

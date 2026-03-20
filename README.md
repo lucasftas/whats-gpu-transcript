@@ -63,10 +63,44 @@ Os modelos são baixados para `Documentos/WhatsGPU/Modelos/` e podem ser trocado
 - **Gerenciamento de modelos**: baixe, troque e remova modelos pelo popup
 - **Progresso em tempo real**: acompanhe o download e a transcrição
 - **Controle de GPU**: suba/descarregue modelos da GPU manualmente
+- **Slider de precisão**: ajuste entre Rápido, Balanceado e Máxima direto no popup
 - **Ícone na bandeja**: cinza (sem modelo), amarelo (processando), verde (pronto)
 - **Auto-start**: opção para iniciar com o Windows
 - **VAD (Voice Activity Detection)**: filtra silêncio automaticamente
+- **Desinstalador completo**: remove app, modelos, registro e guia remoção da extensão Chrome
 - **Privacidade total**: tudo roda local, nenhum áudio é enviado para servidores
+
+## Controle de precisão
+
+O popup da extensão inclui um slider de precisão com 3 níveis:
+
+| Nível      | Parâmetros                                    | Uso                                       |
+| ---------- | --------------------------------------------- | ----------------------------------------- |
+| Rápido     | beam=1, best_of=1                             | Transcrição instantânea, precisão básica   |
+| Balanceado | beam=5, best_of=5                             | Padrão — bom equilíbrio velocidade/precisão |
+| Máxima     | beam=10, best_of=10, patience=2, temp fallback | Precisão máxima, significativamente mais lento |
+
+- No modo **Máxima**, se o modelo carregado for pequeno (tiny/base/small), um aviso sugere trocar para o `large-v3`
+- O **temperature fallback** (modo Máxima) re-tenta segmentos com baixa confiança usando temperaturas progressivas — ajuda com pronúncia difícil e áudio ruidoso
+
+## Desinstalação
+
+### Companion App
+
+Execute o desinstalador pelo menu Iniciar ou Painel de Controle. Ele irá:
+
+1. Fechar o WhatsGPU automaticamente
+2. Remover registro de auto-start do Windows
+3. Perguntar se deseja remover os modelos baixados (libera espaço em disco)
+4. Exibir instruções de remoção da extensão Chrome
+
+### Extensão Chrome
+
+1. Abra `chrome://extensions/` no Chrome
+2. Encontre **"Whats GPU"** na lista
+3. Clique em **Remover** e confirme
+
+Ou: clique com botão direito no ícone da extensão → **Remover do Chrome**
 
 ## Build from source
 

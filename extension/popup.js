@@ -13,6 +13,11 @@ const progressLabel = document.getElementById("progress-label");
 const progressFill = document.getElementById("progress-fill");
 const progressDetail = document.getElementById("progress-detail");
 
+const precisionSlider = document.getElementById("precision-slider");
+const precisionValue = document.getElementById("precision-value");
+const precisionDesc = document.getElementById("precision-desc");
+const precisionWarn = document.getElementById("precision-warn");
+
 let pollTimer = null;
 let healthTimer = null;
 let lastStage = null;
@@ -20,6 +25,39 @@ let lastLogStage = null;
 let selectedModel = null;
 let currentModels = [];
 let cachedModelsData = null;
+
+// ---------------------------------------------------------------------------
+// Precision presets
+// ---------------------------------------------------------------------------
+const PRECISION_PRESETS = [
+	{
+		name: "Rápido",
+		beam_size: 1,
+		best_of: 1,
+		temperature: [0.0],
+		patience: 1.0,
+		desc: "beam=1 · best_of=1 — Velocidade máxima, precisão básica",
+	},
+	{
+		name: "Balanceado",
+		beam_size: 5,
+		best_of: 5,
+		temperature: [0.0],
+		patience: 1.0,
+		desc: "beam=5 · best_of=5 — Bom equilíbrio entre velocidade e precisão",
+	},
+	{
+		name: "Máxima",
+		beam_size: 10,
+		best_of: 10,
+		temperature: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+		patience: 2.0,
+		desc: "beam=10 · best_of=10 · fallback temp — Precisão máxima, mais lento",
+	},
+];
+
+// Small models that should warn when using max precision
+const SMALL_MODELS = ["tiny", "base", "small"];
 
 // ---------------------------------------------------------------------------
 // Log
@@ -128,6 +166,7 @@ function renderModels(data) {
 			selectedModel = m.name;
 			renderModels(data);
 			updateButtons(false, "idle"); // refresh button state
+			updatePrecisionUI(parseInt(precisionSlider.value)); // refresh warning
 		});
 
 		modelsList.appendChild(item);
@@ -367,6 +406,40 @@ btnRefresh.addEventListener("click", async () => {
 	await fetchModels();
 	addLog("Lista de modelos atualizada", "info");
 	btnRefresh.textContent = "\u21BB";
+});
+
+// ---------------------------------------------------------------------------
+// Precision slider
+// ---------------------------------------------------------------------------
+function updatePrecisionUI(level) {
+	const preset = PRECISION_PRESETS[level];
+	precisionValue.textContent = preset.name;
+	precisionDesc.textContent = preset.desc;
+
+	// Warn if small model + max precision
+	const loadedModel = selectedModel || "";
+	if (level === 2 && SMALL_MODELS.includes(loadedModel)) {
+		precisionWarn.textContent =
+			`O modelo "${loadedModel}" é pequeno. Para precisão máxima, recomendamos o large-v3. ` +
+			`A transcrição será mais lenta e o ganho de qualidade será limitado pelo modelo.`;
+		precisionWarn.classList.add("visible");
+	} else {
+		precisionWarn.classList.remove("visible");
+	}
+}
+
+precisionSlider.addEventListener("input", () => {
+	const level = parseInt(precisionSlider.value);
+	updatePrecisionUI(level);
+	// Save to chrome.storage
+	chrome.storage.local.set({ precisionLevel: level });
+});
+
+// Load saved precision level
+chrome.storage.local.get("precisionLevel", (data) => {
+	const level = data.precisionLevel != null ? data.precisionLevel : 1;
+	precisionSlider.value = level;
+	updatePrecisionUI(level);
 });
 
 // ---------------------------------------------------------------------------

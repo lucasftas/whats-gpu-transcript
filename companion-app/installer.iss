@@ -2,7 +2,7 @@
 ; Compila com: ISCC.exe installer.iss
 
 #define MyAppName "WhatsGPU"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "WhatsGPU"
 #define MyAppExeName "Whats GPU.exe"
 
@@ -62,7 +62,9 @@ Filename: "cmd"; Parameters: "/c start chrome://extensions"; Description: "Abrir
 Filename: "taskkill"; Parameters: "/F /IM ""Whats GPU.exe"""; Flags: runhidden; RunOnceId: "KillApp"
 
 [UninstallDelete]
-Type: dirifempty; Name: "{app}"
+; Limpar pasta de instalação
+Type: filesandordirs; Name: "{app}\extension"
+Type: filesandordirs; Name: "{app}"
 
 [Messages]
 FinishedLabel=WhatsGPU foi instalado com sucesso!%n%nPara instalar a extensão no Chrome:%n1. Abra chrome://extensions%n2. Ative o Modo Desenvolvedor%n3. Clique em "Carregar sem compactação"%n4. Selecione a pasta: %n   {app}\extension
@@ -104,9 +106,44 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
+  ModelsDir: String;
+  WhatsGPUDir: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
+    // 1. Matar processo
     Exec('taskkill', '/F /IM "Whats GPU.exe"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+    // 2. Remover registro de auto-start
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'WhatsGPU');
+
+    // 3. Perguntar se quer remover modelos baixados
+    ModelsDir := ExpandConstant('{userdocs}\WhatsGPU\Modelos');
+    WhatsGPUDir := ExpandConstant('{userdocs}\WhatsGPU');
+    if DirExists(ModelsDir) then
+    begin
+      if MsgBox(
+        'Deseja remover todos os modelos Whisper baixados?' + #13#10 +
+        '(Pasta: ' + ModelsDir + ')' + #13#10 + #13#10 +
+        'Isso liberará espaço em disco, mas será necessário baixar novamente se reinstalar.',
+        mbConfirmation, MB_YESNO) = IDYES then
+      begin
+        DelTree(WhatsGPUDir, True, True, True);
+      end;
+    end;
+  end;
+
+  if CurUninstallStep = usPostUninstall then
+  begin
+    // 4. Mostrar tutorial de remoção da extensão no Chrome
+    MsgBox(
+      'WhatsGPU foi removido com sucesso!' + #13#10 + #13#10 +
+      'Para remover a extensão do Chrome:' + #13#10 +
+      '1. Abra o Chrome e acesse chrome://extensions' + #13#10 +
+      '2. Encontre "Whats GPU" na lista' + #13#10 +
+      '3. Clique em "Remover"' + #13#10 +
+      '4. Confirme clicando em "Remover" novamente' + #13#10 + #13#10 +
+      'Ou clique com botao direito no icone da extensão > Remover do Chrome',
+      mbInformation, MB_OK);
   end;
 end;
