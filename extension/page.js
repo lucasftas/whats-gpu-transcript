@@ -102,21 +102,29 @@
 	function injectButton(id, el) {
 		if (el.querySelector(".wt-transcribe-btn")) return;
 
-		const btn = document.createElement("button");
-		btn.className = "wt-transcribe-btn";
-		btn.style.cssText = BUTTON_STYLE;
-		btn.innerHTML = "&#127908; Transcrever";
-		btn.title = "Transcrever áudio localmente (GPU)";
+		// Auto-restore: check cache and show transcription without button
+		checkCache(id).then((cached) => {
+			if (cached && cached.transcription && !cached.error) {
+				appendText(el, cached);
+				return;
+			}
+			// No cache hit — show the transcribe button
+			const btn = document.createElement("button");
+			btn.className = "wt-transcribe-btn";
+			btn.style.cssText = BUTTON_STYLE;
+			btn.innerHTML = "&#127908; Transcrever";
+			btn.title = "Transcrever áudio localmente (GPU)";
 
-		btn.addEventListener("mouseenter", () => {
-			if (!btn.disabled) btn.style.background = BUTTON_HOVER;
-		});
-		btn.addEventListener("mouseleave", () => {
-			if (!btn.disabled) btn.style.background = "#008069";
-		});
+			btn.addEventListener("mouseenter", () => {
+				if (!btn.disabled) btn.style.background = BUTTON_HOVER;
+			});
+			btn.addEventListener("mouseleave", () => {
+				if (!btn.disabled) btn.style.background = "#008069";
+			});
 
-		btn.addEventListener("click", () => onTranscribeClick(id, el, btn));
-		el.appendChild(btn);
+			btn.addEventListener("click", () => onTranscribeClick(id, el, btn));
+			el.appendChild(btn);
+		});
 	}
 
 	// ---------------------------------------------------------------------------

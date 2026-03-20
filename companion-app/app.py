@@ -141,7 +141,8 @@ def create_icon_image(color):
 # ---------------------------------------------------------------------------
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({
+    from transcriber import get_vram_usage
+    data = {
         "status": "ok",
         "model": transcriber.current_model_name,
         "gpu": transcriber.has_gpu,
@@ -149,7 +150,11 @@ def health():
         "vram_gb": transcriber.gpu_vram_gb,
         "model_loaded": transcriber.is_loaded,
         "current_stage": current_status["stage"],
-    })
+    }
+    vram = get_vram_usage()
+    if vram:
+        data.update(vram)
+    return jsonify(data)
 
 
 @app.route("/status", methods=["GET"])

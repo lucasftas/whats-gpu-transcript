@@ -70,6 +70,137 @@ Type: filesandordirs; Name: "{app}"
 FinishedLabel=WhatsGPU foi instalado com sucesso!%n%nPara instalar a extensão no Chrome:%n1. Abra chrome://extensions%n2. Ative o Modo Desenvolvedor%n3. Clique em "Carregar sem compactação"%n4. Selecione a pasta: %n   {app}\extension
 
 [Code]
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function IsModelDownloaded(ModelName: String): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{userdocs}\WhatsGPU\Modelos\') + ModelName + '\model.bin');
+end;
+
+function GetModelSizeMB(Index: Integer): Integer;
+begin
+  case Index of
+    0: Result := 466;   // small
+    1: Result := 3100;  // large-v3
+    2: Result := 1500;  // medium
+    3: Result := 142;   // base
+    4: Result := 75;    // tiny
+  else
+    Result := 0;
+  end;
+end;
+
+function GetModelDirName(Index: Integer): String;
+begin
+  case Index of
+    0: Result := 'small';
+    1: Result := 'large-v3';
+    2: Result := 'medium';
+    3: Result := 'base';
+    4: Result := 'tiny';
+  else
+    Result := '';
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// 1. Detectar instalação existente
+// ---------------------------------------------------------------------------
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if FileExists(ExpandConstant('{userdocs}\WhatsGPU\Whats GPU.exe')) then
+  begin
+    if MsgBox(
+      'WhatsGPU já está instalado neste computador.' + #13#10 + #13#10 +
+      'Deseja continuar e atualizar a instalação?',
+      mbConfirmation, MB_YESNO) = IDNO then
+    begin
+      Result := False;
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// 2. Detectar modelos já baixados e atualizar checkboxes
+// ---------------------------------------------------------------------------
+procedure CurPageChanged(CurPageID: Integer);
+var
+  i: Integer;
+  ModelTaskStart: Integer;
+  ModelName: String;
+  ItemCaption: String;
+begin
+  if CurPageID = wpSelectTasks then
+  begin
+    // Tasks de modelo começam no índice 2 (após desktopicon=0, autostart=1)
+    ModelTaskStart := 2;
+    for i := 0 to 4 do
+    begin
+      ModelName := GetModelDirName(i);
+      if IsModelDownloaded(ModelName) then
+      begin
+        // Pegar texto atual e adicionar indicador de já baixado
+        ItemCaption := WizardForm.TasksList.ItemCaption[ModelTaskStart + i];
+        if Pos('Já baixado', ItemCaption) = 0 then
+        begin
+          WizardForm.TasksList.ItemCaption[ModelTaskStart + i] :=
+            ItemCaption + ' [Já baixado]';
+        end;
+        // Desmarcar - não precisa baixar de novo
+        WizardForm.TasksList.Checked[ModelTaskStart + i] := False;
+      end;
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// 3. Verificar espaço em disco antes de prosseguir
+// ---------------------------------------------------------------------------
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  i: Integer;
+  ModelTaskStart: Integer;
+  NeededMB: Integer;
+  FreeMB: Cardinal;
+begin
+  Result := True;
+  if CurPageID = wpSelectTasks then
+  begin
+    ModelTaskStart := 2;
+    NeededMB := 0;
+    for i := 0 to 4 do
+    begin
+      // Só contar modelos selecionados que ainda não estão baixados
+      if WizardForm.TasksList.Checked[ModelTaskStart + i] then
+      begin
+        if not IsModelDownloaded(GetModelDirName(i)) then
+          NeededMB := NeededMB + GetModelSizeMB(i);
+      end;
+    end;
+
+    if NeededMB > 0 then
+    begin
+      // GetSpaceOnDisk retorna em MB
+      GetSpaceOnDisk(ExpandConstant('{userdocs}'), True, FreeMB, FreeMB);
+      if FreeMB < Cardinal(NeededMB) then
+      begin
+        Result := MsgBox(
+          'Espaço em disco pode ser insuficiente!' + #13#10 + #13#10 +
+          'Modelos selecionados precisam de aproximadamente ' + IntToStr(NeededMB) + ' MB.' + #13#10 +
+          'Espaço livre disponível: ' + IntToStr(FreeMB) + ' MB.' + #13#10 + #13#10 +
+          'Deseja continuar mesmo assim?',
+          mbConfirmation, MB_YESNO) = IDYES;
+      end;
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// Modelos selecionados para download (usado em [Run])
+// ---------------------------------------------------------------------------
 function GetSelectedModels(Param: String): String;
 var
   Models: String;
@@ -103,6 +234,9 @@ begin
   Result := Models;
 end;
 
+// ---------------------------------------------------------------------------
+// Desinstalação
+// ---------------------------------------------------------------------------
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;

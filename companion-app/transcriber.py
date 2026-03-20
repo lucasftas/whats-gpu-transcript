@@ -1,8 +1,10 @@
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,6 @@ def _detect_gpu():
             gpu_name = "NVIDIA GPU"
             vram_gb = 0
             try:
-                import subprocess
                 result = subprocess.run(
                     ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
                     capture_output=True, text=True, timeout=5,
@@ -62,6 +63,38 @@ def _detect_gpu():
         logger.warning("Erro ao detectar GPU: %s", e)
     logger.warning("GPU nao detectada - usando CPU")
     return False, None, 0
+
+
+# VRAM usage cache (avoid spawning nvidia-smi too frequently)
+_vram_cache = {"data": None, "ts": 0}
+_VRAM_CACHE_TTL = 2  # seconds
+
+
+def get_vram_usage():
+    """Query real-time VRAM usage via nvidia-smi. Returns dict or None."""
+    now = time.time()
+    if _vram_cache["data"] is not None and (now - _vram_cache["ts"]) < _VRAM_CACHE_TTL:
+        return _vram_cache["data"]
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            parts = result.stdout.strip().split(",")
+            if len(parts) >= 3:
+                data = {
+                    "vram_total_mb": int(parts[0].strip()),
+                    "vram_used_mb": int(parts[1].strip()),
+                    "vram_free_mb": int(parts[2].strip()),
+                }
+                _vram_cache["data"] = data
+                _vram_cache["ts"] = now
+                return data
+    except Exception:
+        pass
+    return None
 
 
 class Transcriber:
