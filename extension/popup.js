@@ -13,11 +13,6 @@ const progressLabel = document.getElementById("progress-label");
 const progressFill = document.getElementById("progress-fill");
 const progressDetail = document.getElementById("progress-detail");
 
-const vramSection = document.getElementById("vram-section");
-const vramChart = document.getElementById("vram-chart");
-const vramUsedEl = document.getElementById("vram-used");
-const vramFreeEl = document.getElementById("vram-free");
-const vramTotalEl = document.getElementById("vram-total");
 const btnClearCache = document.getElementById("btn-clear-cache");
 
 const precisionSlider = document.getElementById("precision-slider");
@@ -290,7 +285,6 @@ async function checkHealth() {
 		const loadedLabel = data.model_loaded ? `${data.model} carregado` : "Nenhum modelo carregado";
 		statusModel.textContent = `${gpuLabel} | ${loadedLabel}`;
 		updateButtons(data.model_loaded, data.current_stage, data.model);
-		updateVramDisplay(data);
 		return true;
 	} catch (e) {
 		dot.className = "status-dot offline";
@@ -449,69 +443,6 @@ chrome.storage.local.get("precisionLevel", (data) => {
 	precisionSlider.value = level;
 	updatePrecisionUI(level);
 });
-
-// ---------------------------------------------------------------------------
-// VRAM pie chart (pure Canvas 2D, no libraries)
-// ---------------------------------------------------------------------------
-function drawVramChart(usedMB, totalMB) {
-	const ctx = vramChart.getContext("2d");
-	const w = vramChart.width;
-	const h = vramChart.height;
-	const cx = w / 2;
-	const cy = h / 2;
-	const r = Math.min(cx, cy) - 2;
-
-	ctx.clearRect(0, 0, w, h);
-
-	const usedRatio = Math.max(0, Math.min(1, usedMB / totalMB));
-	const usedAngle = usedRatio * 2 * Math.PI;
-	const startAngle = -Math.PI / 2;
-
-	// Free slice (dark)
-	ctx.beginPath();
-	ctx.moveTo(cx, cy);
-	ctx.arc(cx, cy, r, startAngle + usedAngle, startAngle + 2 * Math.PI);
-	ctx.closePath();
-	ctx.fillStyle = "#1a262d";
-	ctx.fill();
-
-	// Used slice (green)
-	ctx.beginPath();
-	ctx.moveTo(cx, cy);
-	ctx.arc(cx, cy, r, startAngle, startAngle + usedAngle);
-	ctx.closePath();
-	ctx.fillStyle = "#008069";
-	ctx.fill();
-
-	// Center hole (donut effect)
-	ctx.beginPath();
-	ctx.arc(cx, cy, r * 0.55, 0, 2 * Math.PI);
-	ctx.fillStyle = "#1f2c34";
-	ctx.fill();
-
-	// Percentage text in center
-	const pct = Math.round(usedRatio * 100);
-	ctx.fillStyle = "#e9edef";
-	ctx.font = "bold 13px 'Segoe UI', sans-serif";
-	ctx.textAlign = "center";
-	ctx.textBaseline = "middle";
-	ctx.fillText(pct + "%", cx, cy);
-}
-
-function updateVramDisplay(data) {
-	if (data.vram_total_mb) {
-		vramSection.classList.add("visible");
-		const usedGB = (data.vram_used_mb / 1024).toFixed(1);
-		const freeGB = (data.vram_free_mb / 1024).toFixed(1);
-		const totalGB = (data.vram_total_mb / 1024).toFixed(1);
-		vramUsedEl.textContent = usedGB + " GB";
-		vramFreeEl.textContent = freeGB + " GB";
-		vramTotalEl.textContent = totalGB + " GB";
-		drawVramChart(data.vram_used_mb, data.vram_total_mb);
-	} else {
-		vramSection.classList.remove("visible");
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Clear transcription cache

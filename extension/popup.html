@@ -87,32 +87,6 @@
 			margin-top: 3px;
 		}
 
-		/* VRAM monitor */
-		.vram-section {
-			display: none;
-			align-items: center;
-			gap: 12px;
-			padding: 10px 12px;
-			border-radius: 8px;
-			background: #1f2c34;
-			margin-bottom: 12px;
-		}
-		.vram-section.visible { display: flex; }
-		.vram-chart-wrap { flex-shrink: 0; }
-		.vram-legend {
-			flex: 1;
-			font-size: 11px;
-			color: #8696a0;
-			line-height: 1.7;
-		}
-		.vram-legend .vram-val { color: #e9edef; font-weight: 600; }
-		.vram-legend .vram-title {
-			font-size: 12px;
-			font-weight: 600;
-			color: #e9edef;
-			margin-bottom: 2px;
-		}
-
 		/* Models section */
 		.section-header {
 			display: flex;
@@ -355,18 +329,6 @@
 			<div>
 				<div class="status-text" id="status-text">Verificando...</div>
 				<div class="status-model" id="status-model"></div>
-			</div>
-		</div>
-
-		<div class="vram-section" id="vram-section">
-			<div class="vram-chart-wrap">
-				<canvas id="vram-chart" width="70" height="70"></canvas>
-			</div>
-			<div class="vram-legend">
-				<div class="vram-title">VRAM</div>
-				<div>Usado: <span class="vram-val" id="vram-used">-</span></div>
-				<div>Livre: <span class="vram-val" id="vram-free">-</span></div>
-				<div>Total: <span class="vram-val" id="vram-total">-</span></div>
 			</div>
 		</div>
 

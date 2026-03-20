@@ -318,10 +318,39 @@ def on_quit(icon, item):
     os._exit(0)
 
 
+def on_unload_model(icon, item):
+    """Unload model from GPU via tray menu."""
+    if transcriber.is_loaded:
+        logger.info("Descarregando modelo via tray...")
+        transcriber.model = None
+        transcriber._model_path = None
+        on_status_change("idle")
+        threading.Thread(target=transcriber._clear_gpu, daemon=True).start()
+
+
 def on_toggle_autostart(icon, item):
     new_state = not is_autostart_enabled()
     set_autostart(new_state)
     logger.info("Auto-start %s", "ativado" if new_state else "desativado")
+
+
+def _vram_label(item):
+    """Dynamic label showing current VRAM usage."""
+    from transcriber import get_vram_usage
+    vram = get_vram_usage()
+    if vram:
+        used_gb = round(vram["vram_used_mb"] / 1024, 1)
+        total_gb = round(vram["vram_total_mb"] / 1024, 1)
+        pct = round(vram["vram_used_mb"] / vram["vram_total_mb"] * 100)
+        return f"VRAM: {used_gb}/{total_gb} GB ({pct}%)"
+    return "VRAM: indisponível"
+
+
+def _model_label(item):
+    """Dynamic label showing loaded model."""
+    if transcriber.is_loaded:
+        return f"Modelo: {transcriber.current_model_name}"
+    return "Modelo: nenhum"
 
 
 # ---------------------------------------------------------------------------
@@ -369,17 +398,23 @@ def main():
     _handle_download_models()
 
     menu = pystray.Menu(
-        pystray.MenuItem(f"Porta: {PORT}", None, enabled=False),
-        pystray.MenuItem(
-            f"GPU: {transcriber.gpu_name or 'CPU'}", None, enabled=False
-        ),
+        pystray.MenuItem(f"GPU: {transcriber.gpu_name or 'CPU'}", None, enabled=False),
+        pystray.MenuItem(_vram_label, None, enabled=False),
+        pystray.MenuItem(_model_label, None, enabled=False),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem(
+            "Limpar GPU",
+            on_unload_model,
+            visible=lambda item: transcriber.is_loaded,
+        ),
         pystray.MenuItem(
             "Iniciar com Windows",
             on_toggle_autostart,
             checked=lambda item: is_autostart_enabled(),
         ),
-        pystray.MenuItem("Sair (limpar GPU)", on_quit),
+        pystray.MenuItem(f"Porta: {PORT}", None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Sair", on_quit),
     )
 
     tray_icon = pystray.Icon(
