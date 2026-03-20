@@ -39,8 +39,9 @@ Name: "model_base"; Description: "base (142 MB) — Precisão básica, muito rá
 Name: "model_tiny"; Description: "tiny (75 MB) — Apenas para testes"; GroupDescription: "Baixar modelos Whisper (após instalação):"
 
 [Files]
-; App principal
-Source: "dist\Whats GPU.exe"; DestDir: "{app}"; Flags: ignoreversion
+; App principal (onedir build - exe + _internal)
+Source: "dist\Whats GPU\Whats GPU.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\Whats GPU\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Extensão Chrome
 Source: "..\extension\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 
