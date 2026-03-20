@@ -312,11 +312,46 @@ def on_toggle_autostart(icon, item):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def _handle_download_models():
+    """Check sys.argv for --download-models and queue downloads."""
+    for i, arg in enumerate(sys.argv):
+        if arg == "--download-models" and i + 1 < len(sys.argv):
+            models_str = sys.argv[i + 1].strip()
+            if not models_str:
+                return
+            model_names = [m.strip() for m in models_str.split(",") if m.strip()]
+            if not model_names:
+                return
+            logger.info("Instalador solicitou download dos modelos: %s", model_names)
+
+            def _download_queue():
+                # Wait for server to be ready
+                time.sleep(3)
+                for name in model_names:
+                    if model_manager.is_downloaded(name):
+                        logger.info("Modelo %s já baixado, pulando", name)
+                        continue
+                    logger.info("Iniciando download: %s", name)
+                    try:
+                        model_manager.download(name)
+                        # Wait for download to finish before starting next
+                        while model_manager.is_downloading:
+                            time.sleep(1)
+                    except Exception as e:
+                        logger.error("Erro ao baixar %s: %s", name, e)
+
+            threading.Thread(target=_download_queue, daemon=True).start()
+            return
+
+
 def main():
     global tray_icon
 
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
+
+    # Check if installer requested model downloads
+    _handle_download_models()
 
     menu = pystray.Menu(
         pystray.MenuItem(f"Porta: {PORT}", None, enabled=False),
