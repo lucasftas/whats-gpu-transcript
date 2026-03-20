@@ -2,7 +2,6 @@
 	let Msg;
 	let getOrCreateURL;
 
-	const API_URL = "http://localhost:8765";
 	const TRANSCRIBE_TIMEOUT = 300000; // 5 min
 
 	const BUTTON_STYLE = `
@@ -160,40 +159,40 @@
 	function startStatusPolling(el, btn) {
 		const { statusDiv, progressFill } = createStatusDiv(el);
 
-		const timer = setInterval(async () => {
-			try {
-				const ctrl = new AbortController();
-				const timeout = setTimeout(() => ctrl.abort(), 2000);
-				const resp = await fetch(`${API_URL}/status`, { signal: ctrl.signal });
-				clearTimeout(timeout);
-
-				if (!resp.ok) return;
-				const data = await resp.json();
-
-				let label = STAGE_LABELS[data.stage];
-				let pct = 0;
-
-				if (data.stage === "transcribing" && data.detail) {
-					pct = data.detail.progress_pct || 0;
-					label = `Transcrevendo... ${pct}% (${data.detail.processed_s || 0}s de ${data.detail.total_s || "?"}s)`;
-				} else if (data.stage === "loading_model") {
-					label = "Subindo modelo na GPU...";
-				}
-
-				if (label) statusDiv.textContent = label;
-				progressFill.style.width = pct + "%";
-
-				// Update button text with percentage
-				if (data.stage === "transcribing" && pct > 0) {
-					btn.innerHTML = `&#9203; ${pct}%`;
-				}
-			} catch (e) {
-				// Ignore polling errors
-			}
+		const timer = setInterval(() => {
+			// Request status via content.js bridge (avoids CSP block)
+			window.dispatchEvent(new CustomEvent("AudioToText:statusRequest"));
 		}, 1500);
+
+		// Listen for status responses from content.js
+		function onStatusResponse(event) {
+			const data = event.detail;
+			if (!data) return;
+
+			let label = STAGE_LABELS[data.stage];
+			let pct = 0;
+
+			if (data.stage === "transcribing" && data.detail) {
+				pct = data.detail.progress_pct || 0;
+				label = `Transcrevendo... ${pct}% (${data.detail.processed_s || 0}s de ${data.detail.total_s || "?"}s)`;
+			} else if (data.stage === "loading_model") {
+				label = "Subindo modelo na GPU...";
+			}
+
+			if (label) statusDiv.textContent = label;
+			progressFill.style.width = pct + "%";
+
+			// Update button text with percentage
+			if (data.stage === "transcribing" && pct > 0) {
+				btn.innerHTML = `&#9203; ${pct}%`;
+			}
+		}
+
+		window.addEventListener("AudioToText:statusResponse", onStatusResponse);
 
 		return () => {
 			clearInterval(timer);
+			window.removeEventListener("AudioToText:statusResponse", onStatusResponse);
 			removeStatusDiv(el);
 		};
 	}
