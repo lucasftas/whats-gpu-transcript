@@ -1,0 +1,23 @@
+# Build artifacts
+companion-app/dist/
+companion-app/build/
+companion-app/*.spec
+*.exe
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+
+# IDE
+.vscode/
+*.code-workspace
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Models (large files)
+Modelos/
