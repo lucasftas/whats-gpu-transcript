@@ -2,7 +2,7 @@
 ; Compila com: ISCC.exe installer.iss
 
 #define MyAppName "WhatsGPU"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.2"
 #define MyAppPublisher "WhatsGPU"
 #define MyAppExeName "Whats GPU.exe"
 
