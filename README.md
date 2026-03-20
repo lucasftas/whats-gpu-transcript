@@ -87,10 +87,7 @@ O popup da extensão inclui um slider de precisão com 3 níveis:
 
 ### Companion App
 
-- **[Baixar WhatsGPU-Uninstall.exe](https://github.com/lucasftas/whats-GPU/releases/latest/download/WhatsGPU-Uninstall.exe)** (download direto)
-- Ou execute pelo menu Iniciar → WhatsGPU → Desinstalar, ou pelo Painel de Controle
-
-O desinstalador irá:
+Execute pelo **menu Iniciar → WhatsGPU → Desinstalar**, ou pelo **Painel de Controle → Desinstalar um programa**. O desinstalador irá:
 
 1. Fechar o WhatsGPU automaticamente
 2. Remover registro de auto-start do Windows
