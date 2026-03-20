@@ -30,7 +30,12 @@ WhatsApp Web (Chrome) ──> Extensão captura áudio ──> Companion App (GP
 
 ### 2. Extensão Chrome
 
-1. Abra `chrome://extensions/`
+1. Abra
+
+```
+chrome://extensions/
+```
+
 2. Ative **Modo do desenvolvedor** (canto superior direito)
 3. Clique **Carregar sem compactação**
 4. Selecione a pasta `extension/`
@@ -43,13 +48,13 @@ WhatsApp Web (Chrome) ──> Extensão captura áudio ──> Companion App (GP
 
 ## Modelos disponíveis
 
-| Modelo | Tamanho | VRAM mínima | Precisão | Velocidade |
-|--------|---------|-------------|----------|------------|
-| large-v3 | 3.1 GB | 10 GB | Excelente | Normal |
-| medium | 1.5 GB | 5 GB | Muito boa | Rápida |
-| small | 466 MB | 2 GB | Boa | Muito rápida |
-| base | 142 MB | 1 GB | Razoável | Ultra rápida |
-| tiny | 75 MB | 1 GB | Baixa | Instantânea |
+| Modelo   | Tamanho | VRAM mínima | Precisão  | Velocidade   |
+| -------- | ------- | ----------- | --------- | ------------ |
+| large-v3 | 3.1 GB  | 10 GB       | Excelente | Normal       |
+| medium   | 1.5 GB  | 5 GB        | Muito boa | Rápida       |
+| small    | 466 MB  | 2 GB        | Boa       | Muito rápida |
+| base     | 142 MB  | 1 GB        | Razoável  | Ultra rápida |
+| tiny     | 75 MB   | 1 GB        | Baixa     | Instantânea  |
 
 Os modelos são baixados para `Documentos/WhatsGPU/Modelos/` e podem ser trocados a qualquer momento pelo popup da extensão.
 
