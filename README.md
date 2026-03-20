@@ -23,8 +23,8 @@ WhatsApp Web (Chrome) ──> Extensão captura áudio ──> Companion App (GP
 
 ### 1. Companion App
 
-- **[Baixar WhatsGPU-Setup.exe](https://github.com/lucasftas/whats-gpu-transcript/releases/latest/download/WhatsGPU-Setup.exe)** (download direto)
-- Ou acesse a [página de releases](https://github.com/lucasftas/whats-gpu-transcript/releases) para ver todas as versões
+- **[Baixar WhatsGPU-Setup.exe](https://github.com/lucasftas/whats-GPU/releases/latest/download/WhatsGPU-Setup.exe)** (download direto)
+- Ou acesse a [página de releases](https://github.com/lucasftas/whats-GPU/releases) para ver todas as versões
 - Execute o instalador e selecione os modelos desejados
 - O app inicia automaticamente na bandeja do sistema
 
@@ -87,7 +87,10 @@ O popup da extensão inclui um slider de precisão com 3 níveis:
 
 ### Companion App
 
-Execute o desinstalador pelo menu Iniciar ou Painel de Controle. Ele irá:
+- **[Baixar WhatsGPU-Uninstall.exe](https://github.com/lucasftas/whats-GPU/releases/latest/download/WhatsGPU-Uninstall.exe)** (download direto)
+- Ou execute pelo menu Iniciar → WhatsGPU → Desinstalar, ou pelo Painel de Controle
+
+O desinstalador irá:
 
 1. Fechar o WhatsGPU automaticamente
 2. Remover registro de auto-start do Windows
