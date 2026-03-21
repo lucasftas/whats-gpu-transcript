@@ -23,8 +23,8 @@ WhatsApp Web (Chrome) ──> Extensão captura áudio ──> Companion App (GP
 
 ### 1. Companion App
 
-- **[Baixar WhatsGPU-Setup.exe](https://github.com/lucasftas/whats-GPU/releases/latest/download/WhatsGPU-Setup.exe)** (download direto)
-- Ou acesse a [página de releases](https://github.com/lucasftas/whats-GPU/releases) para ver todas as versões
+- **[Baixar WhatsGPU-Setup.exe](https://github.com/lucasftas/whats-GPU/releases/latest)** (página de download)
+
 - Execute o instalador e selecione os modelos desejados
 - O app inicia automaticamente na bandeja do sistema
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,90 @@ def get_vram_usage():
     return None
 
 
+# ---------------------------------------------------------------------------
+# Audio pre-processing (normalize volume for WhatsApp compressed audio)
+# ---------------------------------------------------------------------------
+def _normalize_audio(audio_path):
+    """Normalize audio volume using peak normalization. Returns path to normalized file."""
+    try:
+        import av
+        import numpy as np
+
+        container = av.open(audio_path)
+        stream = container.streams.audio[0]
+
+        # Decode all audio frames
+        frames = []
+        for frame in container.decode(stream):
+            arr = frame.to_ndarray().flatten().astype(np.float32)
+            frames.append(arr)
+        container.close()
+
+        if not frames:
+            return audio_path
+
+        audio_data = np.concatenate(frames)
+        peak = np.max(np.abs(audio_data))
+
+        if peak < 1e-6:
+            logger.info("Audio silencioso, pulando normalizacao")
+            return audio_path
+
+        # Normalize to 95% of max to avoid clipping
+        if peak < 0.5:
+            scale = 0.95 / peak
+            audio_data = audio_data * scale
+            audio_data = np.clip(audio_data, -1.0, 1.0)
+            logger.info("Audio normalizado: peak %.4f -> %.4f (scale %.2fx)", peak, 0.95, scale)
+
+            # Write normalized audio to WAV (faster_whisper accepts WAV)
+            norm_path = audio_path + ".norm.wav"
+            out = av.open(norm_path, "w")
+            out_stream = out.add_stream("pcm_s16le", rate=stream.rate or 16000)
+            out_stream.layout = "mono"
+
+            # Convert float32 [-1,1] to int16
+            int_data = (audio_data * 32767).astype(np.int16)
+            frame = av.AudioFrame.from_ndarray(
+                int_data.reshape(1, -1), format="s16", layout="mono"
+            )
+            frame.rate = stream.rate or 16000
+            for packet in out_stream.encode(frame):
+                out.mux(packet)
+            for packet in out_stream.encode():
+                out.mux(packet)
+            out.close()
+            return norm_path
+        else:
+            logger.info("Audio ja com volume adequado (peak %.4f)", peak)
+            return audio_path
+    except Exception as e:
+        logger.warning("Falha na normalizacao, usando audio original: %s", e)
+        return audio_path
+
+
+# ---------------------------------------------------------------------------
+# Post-processing (clean transcription artifacts)
+# ---------------------------------------------------------------------------
+_HALLUCINATION_PATTERNS = re.compile(
+    r"\[BLANK_AUDIO\]|"
+    r"\(sil[eê]ncio\)|"
+    r"Legendas (?:pela|por) comunidade|"
+    r"Obrigad[oa] por assistir|"
+    r"Thanks for watching|"
+    r"Inscreva-se no canal|"
+    r"♪",
+    re.IGNORECASE,
+)
+
+
+def _clean_transcription(text):
+    """Remove common Whisper artifacts from transcription."""
+    text = _HALLUCINATION_PATTERNS.sub("", text)
+    text = re.sub(r"\s{2,}", " ", text)  # collapse multiple spaces
+    return text.strip()
+
+
 class Transcriber:
     def __init__(self, model_size="large-v3", status_callback=None):
         self.model = None
@@ -139,12 +224,17 @@ class Transcriber:
     def transcribe(self, audio_bytes, filename="audio.ogg", precision=None):
         """Transcribe audio bytes. precision dict can override beam_size, best_of, temperature, patience."""
         tmp_path = None
+        norm_path = None
         try:
             suffix = os.path.splitext(filename)[1] or ".ogg"
             fd, tmp_path = tempfile.mkstemp(suffix=suffix)
             os.close(fd)
             with open(tmp_path, "wb") as f:
                 f.write(audio_bytes)
+
+            # Pre-process: normalize audio volume (WhatsApp compression = low volume)
+            norm_path = _normalize_audio(tmp_path)
+            transcribe_path = norm_path if norm_path != tmp_path else tmp_path
 
             # Apply precision overrides
             p = precision or {}
@@ -166,7 +256,7 @@ class Transcriber:
             with self._lock:
                 self.ensure_model()
                 segments, info = self.model.transcribe(
-                    tmp_path,
+                    transcribe_path,
                     language="pt",
                     beam_size=beam_size,
                     best_of=best_of,
@@ -178,17 +268,31 @@ class Transcriber:
                         speech_pad_ms=200,
                     ),
                     no_speech_threshold=0.5,
-                    log_prob_threshold=-1.0,
+                    log_prob_threshold=-0.8,
                     compression_ratio_threshold=2.4,
                     condition_on_previous_text=True,
-                    initial_prompt="Transcrição de mensagem de voz do WhatsApp em português brasileiro.",
+                    initial_prompt=(
+                        "Transcrição de mensagem de voz do WhatsApp em português brasileiro. "
+                        "Linguagem informal e coloquial."
+                    ),
                 )
                 duration_s = getattr(info, "duration", 0) or 0
 
             # Iterate segments OUTSIDE lock — allows /status to respond
             collected = []
             for segment in segments:
-                collected.append(segment.text.strip())
+                # Filter low-confidence segments (likely noise/breathing)
+                if getattr(segment, "no_speech_prob", 0) > 0.7:
+                    logger.info(
+                        "Segmento descartado (no_speech=%.2f): '%s'",
+                        segment.no_speech_prob, segment.text.strip()[:50],
+                    )
+                    continue
+
+                text = segment.text.strip()
+                if text:
+                    collected.append(text)
+
                 if duration_s > 0:
                     pct = min(round(segment.end / duration_s * 100), 99)
                     self._emit("transcribing", {
@@ -198,7 +302,10 @@ class Transcriber:
                     })
 
             self._emit("done", {"progress_pct": 100})
-            return " ".join(collected)
+
+            # Post-process: clean artifacts
+            result = " ".join(collected)
+            return _clean_transcription(result)
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or "OutOfMemoryError" in type(e).__name__:
                 logger.error("GPU OOM - descarregando modelo")
@@ -210,6 +317,8 @@ class Transcriber:
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+            if norm_path and norm_path != tmp_path and os.path.exists(norm_path):
+                os.unlink(norm_path)
 
     def unload(self):
         with self._lock:
