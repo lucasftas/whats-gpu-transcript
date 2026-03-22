@@ -2,7 +2,7 @@
 ; Compila com: ISCC.exe installer.iss
 
 #define MyAppName "WhatsGPU"
-#define MyAppVersion "1.1.2"
+#define MyAppVersion "1.1.3"
 #define MyAppPublisher "WhatsGPU"
 #define MyAppExeName "Whats GPU.exe"
 
@@ -15,7 +15,7 @@ DefaultDirName={userdocs}\WhatsGPU
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=dist
-OutputBaseFilename=WhatsGPU-Setup
+OutputBaseFilename=WhatsGPU-Setup-v{#MyAppVersion}
 SetupIconFile=icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
