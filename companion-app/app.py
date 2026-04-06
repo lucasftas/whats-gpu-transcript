@@ -3,7 +3,9 @@ import sys
 import threading
 import time
 import os
+import uuid
 import winreg
+from collections import OrderedDict
 
 from flask import Flask, request, jsonify
 from PIL import Image, ImageDraw
@@ -12,6 +14,7 @@ import pystray
 
 from transcriber import Transcriber
 from model_manager import ModelManager
+from updater import UpdateChecker
 
 # ---------------------------------------------------------------------------
 # Auto-start helpers (Windows Registry)
@@ -122,6 +125,60 @@ def on_status_change(stage, detail=None):
 transcriber = Transcriber(model_size=DEFAULT_MODEL, status_callback=on_status_change)
 model_manager = ModelManager(status_callback=on_status_change)
 
+# ---------------------------------------------------------------------------
+# Transcription queue
+# ---------------------------------------------------------------------------
+_queue_lock = threading.Lock()
+_queue_jobs = OrderedDict()  # job_id -> {status, result, error, ...}
+_queue_thread = None
+_queue_event = threading.Event()
+
+
+def _queue_worker():
+    """Background worker that processes transcription jobs sequentially."""
+    while True:
+        _queue_event.wait()
+        _queue_event.clear()
+        while True:
+            job = None
+            with _queue_lock:
+                for jid, j in _queue_jobs.items():
+                    if j["status"] == "queued":
+                        j["status"] = "processing"
+                        job = (jid, j)
+                        break
+            if not job:
+                break
+            jid, j = job
+            try:
+                result = transcriber.transcribe(
+                    j["audio_bytes"],
+                    filename=j["filename"],
+                    precision=j["precision"],
+                )
+                with _queue_lock:
+                    j["status"] = "done"
+                    j["result"] = result
+                on_status_change("idle")
+            except RuntimeError as e:
+                with _queue_lock:
+                    j["status"] = "error"
+                    j["error"] = str(e)
+                    j["retry"] = "GPU sem memoria" in str(e)
+                on_status_change("idle")
+            except Exception as e:
+                with _queue_lock:
+                    j["status"] = "error"
+                    j["error"] = str(e)
+                on_status_change("idle")
+
+
+def _ensure_queue_worker():
+    global _queue_thread
+    if _queue_thread is None or not _queue_thread.is_alive():
+        _queue_thread = threading.Thread(target=_queue_worker, daemon=True)
+        _queue_thread.start()
+
 
 # ---------------------------------------------------------------------------
 # Tray icon helpers
@@ -147,6 +204,8 @@ def health():
         "model": transcriber.current_model_name,
         "gpu": transcriber.has_gpu,
         "gpu_name": transcriber.gpu_name,
+        "gpu_count": len(transcriber.gpus),
+        "active_gpu": transcriber.device_index,
         "vram_gb": transcriber.gpu_vram_gb,
         "model_loaded": transcriber.is_loaded,
         "current_stage": current_status["stage"],
@@ -210,6 +269,31 @@ def delete_model(name):
 # ---------------------------------------------------------------------------
 # GPU model routes
 # ---------------------------------------------------------------------------
+@app.route("/gpus", methods=["GET"])
+def list_gpus():
+    return jsonify({
+        "gpus": transcriber.gpus,
+        "active_gpu": transcriber.device_index,
+        "device": transcriber.device,
+    })
+
+
+@app.route("/gpu/select", methods=["POST"])
+def select_gpu():
+    data = request.get_json(silent=True) or {}
+    idx = data.get("index", 0)
+    if idx < 0 or idx >= len(transcriber.gpus):
+        return jsonify({"error": f"GPU {idx} não disponível"}), 400
+    if transcriber.is_loaded:
+        return jsonify({"error": "Descarregue o modelo antes de trocar de GPU"}), 409
+    transcriber.device_index = idx
+    gpu = transcriber.gpus[idx]
+    transcriber.gpu_name = gpu["name"]
+    transcriber.gpu_vram_gb = gpu["vram_gb"]
+    logger.info("GPU selecionada: %d - %s", idx, gpu["name"])
+    return jsonify({"status": "ok", "gpu": gpu})
+
+
 @app.route("/model/load", methods=["POST"])
 def model_load():
     # Accept model name from body
@@ -253,6 +337,51 @@ def model_unload():
 # ---------------------------------------------------------------------------
 # Transcription route
 # ---------------------------------------------------------------------------
+LANGUAGE_PROMPTS = {
+    "pt": "Transcrição de mensagem de voz do WhatsApp em português brasileiro. Linguagem informal e coloquial.",
+    "en": "Transcription of a WhatsApp voice message in English. Informal and colloquial language.",
+    "es": "Transcripción de mensaje de voz de WhatsApp en español. Lenguaje informal y coloquial.",
+    "fr": "Transcription d'un message vocal WhatsApp en français. Langage informel et familier.",
+    "de": "Transkription einer WhatsApp-Sprachnachricht auf Deutsch. Informelle und umgangssprachliche Sprache.",
+    "it": "Trascrizione di un messaggio vocale WhatsApp in italiano. Linguaggio informale e colloquiale.",
+    "ja": "WhatsApp音声メッセージの日本語文字起こし。カジュアルな会話。",
+    "zh": "WhatsApp语音消息的中文转录。非正式口语化语言。",
+    "ko": "WhatsApp 음성 메시지의 한국어 전사. 비격식적이고 구어적인 언어.",
+    "ru": "Транскрипция голосового сообщения WhatsApp на русском языке. Неформальная разговорная речь.",
+    "ar": "نسخ رسالة صوتية من واتساب باللغة العربية. لغة غير رسمية وعامية.",
+    "hi": "WhatsApp वॉइस मैसेज का हिंदी में ट्रांसक्रिप्शन। अनौपचारिक और बोलचाल की भाषा।",
+}
+
+
+def _parse_transcribe_params():
+    """Parse precision, language, and context from form data."""
+    precision = None
+    precision_json = request.form.get("precision")
+    if precision_json:
+        try:
+            import json
+            precision = json.loads(precision_json)
+        except Exception:
+            pass
+
+    language = request.form.get("language", "pt").strip()
+    if precision is None:
+        precision = {}
+
+    if language == "auto":
+        precision["language"] = None
+    else:
+        precision["language"] = language
+
+    context = request.form.get("context", "").strip()
+    base_prompt = LANGUAGE_PROMPTS.get(language, LANGUAGE_PROMPTS["pt"])
+    if context:
+        base_prompt += " Contexto da conversa: " + context[:300]
+    precision["initial_prompt"] = base_prompt
+
+    return precision
+
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe_audio():
     if "file" not in request.files:
@@ -263,20 +392,31 @@ def transcribe_audio():
     if not audio_bytes:
         return jsonify({"error": "Empty file"}), 400
 
-    # Parse precision parameters from form data
-    precision = None
-    precision_json = request.form.get("precision")
-    if precision_json:
-        try:
-            import json
-            precision = json.loads(precision_json)
-        except Exception:
-            pass
+    precision = _parse_transcribe_params()
+    mode = request.form.get("mode", "sync")
 
+    if mode == "async":
+        # Queue mode: return job_id immediately
+        job_id = str(uuid.uuid4())[:8]
+        with _queue_lock:
+            _queue_jobs[job_id] = {
+                "status": "queued",
+                "audio_bytes": audio_bytes,
+                "filename": file.filename or "audio.ogg",
+                "precision": precision,
+                "result": None,
+                "error": None,
+                "created": time.time(),
+            }
+        _ensure_queue_worker()
+        _queue_event.set()
+        return jsonify({"job_id": job_id, "status": "queued"})
+
+    # Sync mode (default — backwards compatible)
     try:
-        text = transcriber.transcribe(audio_bytes, filename=file.filename or "audio.ogg", precision=precision)
+        result = transcriber.transcribe(audio_bytes, filename=file.filename or "audio.ogg", precision=precision)
         on_status_change("idle")
-        return jsonify({"text": text})
+        return jsonify({"text": result["text"], "words": result["words"]})
     except RuntimeError as e:
         on_status_change("idle")
         if "GPU sem memoria" in str(e):
@@ -288,6 +428,166 @@ def transcribe_audio():
         on_status_change("idle")
         logger.error("Erro na transcricao: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/transcribe/<job_id>", methods=["GET"])
+def get_transcription_job(job_id):
+    """Check status of an async transcription job."""
+    with _queue_lock:
+        job = _queue_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job não encontrado"}), 404
+    if job["status"] == "done":
+        result = job["result"]
+        # Clean up completed job
+        with _queue_lock:
+            _queue_jobs.pop(job_id, None)
+        return jsonify({"status": "done", "text": result["text"], "words": result["words"]})
+    if job["status"] == "error":
+        error = job["error"]
+        retry = job.get("retry", False)
+        with _queue_lock:
+            _queue_jobs.pop(job_id, None)
+        code = 503 if retry else 500
+        return jsonify({"status": "error", "error": error, "retry": retry}), code
+    # queued or processing
+    position = 0
+    with _queue_lock:
+        for jid, j in _queue_jobs.items():
+            if j["status"] == "queued":
+                position += 1
+            if jid == job_id:
+                break
+    return jsonify({"status": job["status"], "position": position})
+
+
+@app.route("/queue", methods=["GET"])
+def get_queue():
+    """Return current queue status."""
+    with _queue_lock:
+        jobs = [
+            {"id": jid, "status": j["status"], "created": j["created"]}
+            for jid, j in _queue_jobs.items()
+        ]
+    return jsonify({"jobs": jobs, "count": len(jobs)})
+
+
+# ---------------------------------------------------------------------------
+# Ensemble transcription
+# ---------------------------------------------------------------------------
+@app.route("/transcribe/ensemble", methods=["POST"])
+def transcribe_ensemble():
+    """Transcribe with two models and merge results by word confidence."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    audio_bytes = file.read()
+    if not audio_bytes:
+        return jsonify({"error": "Empty file"}), 400
+
+    precision = _parse_transcribe_params()
+
+    # Get the two models to use
+    import json
+    models_json = request.form.get("models", "[]")
+    try:
+        model_names = json.loads(models_json)
+    except Exception:
+        model_names = []
+
+    if len(model_names) < 2:
+        return jsonify({"error": "Especifique pelo menos 2 modelos"}), 400
+
+    # Verify both models are downloaded
+    for name in model_names[:2]:
+        if not model_manager.is_downloaded(name):
+            return jsonify({"error": f"Modelo {name} não está baixado"}), 400
+
+    results = []
+    try:
+        for name in model_names[:2]:
+            model_path = model_manager.get_path(name)
+            on_status_change("loading_model", f"Ensemble: carregando {name}...")
+            transcriber.ensure_model(model_path=model_path)
+            result = transcriber.transcribe(
+                audio_bytes,
+                filename=file.filename or "audio.ogg",
+                precision=precision,
+            )
+            results.append({"model": name, **result})
+
+        # Merge: pick words with highest confidence from either model
+        merged = _merge_ensemble(results)
+        on_status_change("idle")
+        return jsonify(merged)
+    except RuntimeError as e:
+        on_status_change("idle")
+        if "GPU sem memoria" in str(e):
+            return jsonify({"error": str(e), "retry": True}), 503
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        on_status_change("idle")
+        return jsonify({"error": str(e)}), 500
+
+
+def _merge_ensemble(results):
+    """Merge results from multiple models by picking highest-confidence words."""
+    if not results:
+        return {"text": "", "words": [], "ensemble": True}
+
+    # Find the result with most words as the base
+    best = max(results, key=lambda r: len(r.get("words", [])))
+    other = [r for r in results if r is not best]
+
+    if not other or not best.get("words"):
+        return {"text": best["text"], "words": best.get("words", []), "ensemble": True, "models": [r["model"] for r in results]}
+
+    # Build word lookup by approximate time for the other model
+    other_words = other[0].get("words", [])
+    merged_words = []
+
+    for w in best["words"]:
+        # Find closest word in other model's output by timestamp
+        best_match = None
+        best_dist = float("inf")
+        for ow in other_words:
+            dist = abs(w["start"] - ow["start"])
+            if dist < best_dist:
+                best_dist = dist
+                best_match = ow
+
+        # If close enough in time (< 0.5s) and other model has higher confidence, use it
+        if best_match and best_dist < 0.5 and best_match["confidence"] > w["confidence"]:
+            merged_words.append({
+                **best_match,
+                "source": other[0]["model"],
+            })
+        else:
+            merged_words.append({
+                **w,
+                "source": best["model"],
+            })
+
+    merged_text = " ".join(w["word"] for w in merged_words)
+    avg_confidence = sum(w["confidence"] for w in merged_words) / len(merged_words) if merged_words else 0
+
+    return {
+        "text": merged_text,
+        "words": merged_words,
+        "ensemble": True,
+        "models": [r["model"] for r in results],
+        "avg_confidence": round(avg_confidence, 3),
+    }
+
+
+@app.route("/update/check", methods=["GET"])
+def check_update():
+    from updater import check_for_update
+    update = check_for_update()
+    if update:
+        return jsonify({"available": True, **update})
+    return jsonify({"available": False})
 
 
 @app.after_request
@@ -332,6 +632,24 @@ def on_toggle_autostart(icon, item):
     new_state = not is_autostart_enabled()
     set_autostart(new_state)
     logger.info("Auto-start %s", "ativado" if new_state else "desativado")
+
+
+# ---------------------------------------------------------------------------
+# Update checker integration
+# ---------------------------------------------------------------------------
+_update_info = {"available": False, "data": None}
+
+
+def _on_update_available(update):
+    _update_info["available"] = True
+    _update_info["data"] = update
+    if tray_icon:
+        tray_icon.title = f"Whats GPU - Atualização disponível: {update['version']}"
+
+
+def on_download_update(icon, item):
+    if _update_info["data"]:
+        UpdateChecker.open_download(_update_info["data"])
 
 
 def _vram_label(item):
@@ -394,6 +712,10 @@ def main():
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
 
+    # Start update checker
+    update_checker = UpdateChecker(on_update_available=_on_update_available)
+    update_checker.start()
+
     # Check if installer requested model downloads
     _handle_download_models()
 
@@ -411,6 +733,11 @@ def main():
             "Iniciar com Windows",
             on_toggle_autostart,
             checked=lambda item: is_autostart_enabled(),
+        ),
+        pystray.MenuItem(
+            lambda item: f"Atualizar para {_update_info['data']['version']}" if _update_info["available"] else "Sem atualizações",
+            on_download_update,
+            visible=lambda item: _update_info["available"],
         ),
         pystray.MenuItem(f"Porta: {PORT}", None, enabled=False),
         pystray.Menu.SEPARATOR,

@@ -1,11 +1,15 @@
 import logging
 import os
+import platform
 import re
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+
+# Windows: hide console window when spawning subprocesses (nvidia-smi)
+_subprocess_flags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
 
 logger = logging.getLogger(__name__)
 
@@ -37,32 +41,48 @@ def _load_cuda_libs():
 _load_cuda_libs()
 
 
-def _detect_gpu():
-    """Detect NVIDIA GPU using ctranslate2 (no torch needed)."""
+def _detect_gpus():
+    """Detect all NVIDIA GPUs. Returns list of {index, name, vram_gb}."""
+    gpus = []
     try:
         import ctranslate2
         num_gpus = ctranslate2.get_cuda_device_count()
         if num_gpus > 0:
-            # Get GPU name and VRAM via subprocess (nvidia-smi)
-            gpu_name = "NVIDIA GPU"
-            vram_gb = 0
             try:
                 result = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                    ["nvidia-smi", "--query-gpu=index,name,memory.total", "--format=csv,noheader,nounits"],
                     capture_output=True, text=True, timeout=5,
+                    creationflags=_subprocess_flags,
                 )
                 if result.returncode == 0:
-                    parts = result.stdout.strip().split(",")
-                    if len(parts) >= 2:
-                        gpu_name = parts[0].strip()
-                        vram_gb = round(int(parts[1].strip()) / 1024, 1)
+                    for line in result.stdout.strip().split("\n"):
+                        parts = line.split(",")
+                        if len(parts) >= 3:
+                            gpus.append({
+                                "index": int(parts[0].strip()),
+                                "name": parts[1].strip(),
+                                "vram_gb": round(int(parts[2].strip()) / 1024, 1),
+                            })
             except Exception:
                 pass
-            logger.info("GPU detectada: %s (%.1f GB VRAM)", gpu_name, vram_gb)
-            return True, gpu_name, vram_gb
+            # Fallback: at least one generic GPU
+            if not gpus:
+                gpus.append({"index": 0, "name": "NVIDIA GPU", "vram_gb": 0})
+            for g in gpus:
+                logger.info("GPU %d: %s (%.1f GB VRAM)", g["index"], g["name"], g["vram_gb"])
     except Exception as e:
-        logger.warning("Erro ao detectar GPU: %s", e)
-    logger.warning("GPU nao detectada - usando CPU")
+        logger.warning("Erro ao detectar GPUs: %s", e)
+    if not gpus:
+        logger.warning("GPU nao detectada - usando CPU")
+    return gpus
+
+
+def _detect_gpu():
+    """Detect primary NVIDIA GPU (backwards compatible)."""
+    gpus = _detect_gpus()
+    if gpus:
+        g = gpus[0]
+        return True, g["name"], g["vram_gb"]
     return False, None, 0
 
 
@@ -81,6 +101,7 @@ def get_vram_usage():
             ["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
+            creationflags=_subprocess_flags,
         )
         if result.returncode == 0:
             parts = result.stdout.strip().split(",")
@@ -99,7 +120,75 @@ def get_vram_usage():
 
 
 # ---------------------------------------------------------------------------
-# Audio pre-processing (normalize volume for WhatsApp compressed audio)
+# Audio pre-processing: noise reduction (remove background noise)
+# ---------------------------------------------------------------------------
+def _reduce_noise(audio_path):
+    """Apply spectral gating noise reduction to audio. Returns path to cleaned file."""
+    try:
+        import av
+        import numpy as np
+        import noisereduce as nr
+
+        container = av.open(audio_path)
+        stream = container.streams.audio[0]
+        sample_rate = stream.rate or 16000
+
+        frames = []
+        for frame in container.decode(stream):
+            arr = frame.to_ndarray().flatten().astype(np.float32)
+            frames.append(arr)
+        container.close()
+
+        if not frames:
+            return audio_path
+
+        audio_data = np.concatenate(frames)
+
+        # Skip very short audio (< 0.5s) — not enough data for noise profile
+        if len(audio_data) < sample_rate * 0.5:
+            return audio_path
+
+        # Apply spectral gating noise reduction
+        # stationary=True is faster and works well for constant background noise
+        # prop_decrease=0.75 reduces noise by 75% (not 100% to preserve naturalness)
+        reduced = nr.reduce_noise(
+            y=audio_data,
+            sr=sample_rate,
+            stationary=True,
+            prop_decrease=0.75,
+            n_fft=1024,
+            freq_mask_smooth_hz=200,
+        )
+
+        # Write denoised audio to WAV
+        denoised_path = audio_path + ".denoised.wav"
+        out = av.open(denoised_path, "w")
+        out_stream = out.add_stream("pcm_s16le", rate=sample_rate)
+        out_stream.layout = "mono"
+
+        int_data = (np.clip(reduced, -1.0, 1.0) * 32767).astype(np.int16)
+        frame = av.AudioFrame.from_ndarray(
+            int_data.reshape(1, -1), format="s16", layout="mono"
+        )
+        frame.rate = sample_rate
+        for packet in out_stream.encode(frame):
+            out.mux(packet)
+        for packet in out_stream.encode():
+            out.mux(packet)
+        out.close()
+
+        logger.info("Noise reduction aplicado: %d samples @ %dHz", len(audio_data), sample_rate)
+        return denoised_path
+    except ImportError:
+        logger.warning("noisereduce não instalado, pulando redução de ruído")
+        return audio_path
+    except Exception as e:
+        logger.warning("Falha na redução de ruído, usando áudio original: %s", e)
+        return audio_path
+
+
+# ---------------------------------------------------------------------------
+# Audio pre-processing: normalize volume (WhatsApp compressed audio)
 # ---------------------------------------------------------------------------
 def _normalize_audio(audio_path):
     """Normalize audio volume using peak normalization. Returns path to normalized file."""
@@ -183,7 +272,7 @@ def _clean_transcription(text):
 
 
 class Transcriber:
-    def __init__(self, model_size="large-v3", status_callback=None):
+    def __init__(self, model_size="large-v3", status_callback=None, device_index=0):
         self.model = None
         self.model_size = model_size
         self._model_path = None  # path or HF model name
@@ -191,7 +280,18 @@ class Transcriber:
         self._status_callback = status_callback
 
         # GPU detection
-        self.has_gpu, self.gpu_name, self.gpu_vram_gb = _detect_gpu()
+        self.gpus = _detect_gpus()
+        self.has_gpu = len(self.gpus) > 0
+        self.device_index = device_index if device_index < len(self.gpus) else 0
+
+        if self.has_gpu:
+            gpu = self.gpus[self.device_index]
+            self.gpu_name = gpu["name"]
+            self.gpu_vram_gb = gpu["vram_gb"]
+        else:
+            self.gpu_name = None
+            self.gpu_vram_gb = 0
+
         self.device = "cuda" if self.has_gpu else "cpu"
         self.compute_type = "float16" if self.has_gpu else "int8"
 
@@ -211,11 +311,13 @@ class Transcriber:
             self.model = None
             self._clear_gpu()
 
-        self._emit("loading_model", f"Carregando {os.path.basename(str(target))} na {self.device.upper()}...")
+        gpu_label = f"{self.device.upper()}:{self.device_index}" if self.has_gpu else "CPU"
+        self._emit("loading_model", f"Carregando {os.path.basename(str(target))} na {gpu_label}...")
         from faster_whisper import WhisperModel
         self.model = WhisperModel(
             target,
             device=self.device,
+            device_index=self.device_index if self.has_gpu else 0,
             compute_type=self.compute_type,
         )
         self._model_path = target
@@ -224,6 +326,7 @@ class Transcriber:
     def transcribe(self, audio_bytes, filename="audio.ogg", precision=None):
         """Transcribe audio bytes. precision dict can override beam_size, best_of, temperature, patience."""
         tmp_path = None
+        denoised_path = None
         norm_path = None
         try:
             suffix = os.path.splitext(filename)[1] or ".ogg"
@@ -232,9 +335,10 @@ class Transcriber:
             with open(tmp_path, "wb") as f:
                 f.write(audio_bytes)
 
-            # Pre-process: normalize audio volume (WhatsApp compression = low volume)
-            norm_path = _normalize_audio(tmp_path)
-            transcribe_path = norm_path if norm_path != tmp_path else tmp_path
+            # Pre-process pipeline: denoise → normalize
+            denoised_path = _reduce_noise(tmp_path)
+            norm_path = _normalize_audio(denoised_path)
+            transcribe_path = norm_path if norm_path != denoised_path else denoised_path
 
             # Apply precision overrides
             p = precision or {}
@@ -252,16 +356,23 @@ class Transcriber:
                 beam_size, best_of, patience, temperature,
             )
 
+            # Build initial prompt (may be overridden by dynamic context)
+            initial_prompt = p.get("initial_prompt") or (
+                "Transcrição de mensagem de voz do WhatsApp em português brasileiro. "
+                "Linguagem informal e coloquial."
+            )
+
             # Lock only for model access and transcribe call
             with self._lock:
                 self.ensure_model()
                 segments, info = self.model.transcribe(
                     transcribe_path,
-                    language="pt",
+                    language=p.get("language") or "pt",
                     beam_size=beam_size,
                     best_of=best_of,
                     temperature=temperature,
                     patience=patience,
+                    word_timestamps=True,
                     vad_filter=True,
                     vad_parameters=dict(
                         min_silence_duration_ms=300,
@@ -271,15 +382,13 @@ class Transcriber:
                     log_prob_threshold=-0.8,
                     compression_ratio_threshold=2.4,
                     condition_on_previous_text=True,
-                    initial_prompt=(
-                        "Transcrição de mensagem de voz do WhatsApp em português brasileiro. "
-                        "Linguagem informal e coloquial."
-                    ),
+                    initial_prompt=initial_prompt,
                 )
                 duration_s = getattr(info, "duration", 0) or 0
 
             # Iterate segments OUTSIDE lock — allows /status to respond
             collected = []
+            words_data = []
             for segment in segments:
                 # Filter low-confidence segments (likely noise/breathing)
                 if getattr(segment, "no_speech_prob", 0) > 0.7:
@@ -293,6 +402,15 @@ class Transcriber:
                 if text:
                     collected.append(text)
 
+                # Collect word-level data
+                for word in getattr(segment, "words", []) or []:
+                    words_data.append({
+                        "word": word.word.strip(),
+                        "start": round(word.start, 2),
+                        "end": round(word.end, 2),
+                        "confidence": round(word.probability, 3),
+                    })
+
                 if duration_s > 0:
                     pct = min(round(segment.end / duration_s * 100), 99)
                     self._emit("transcribing", {
@@ -305,7 +423,10 @@ class Transcriber:
 
             # Post-process: clean artifacts
             result = " ".join(collected)
-            return _clean_transcription(result)
+            return {
+                "text": _clean_transcription(result),
+                "words": words_data,
+            }
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or "OutOfMemoryError" in type(e).__name__:
                 logger.error("GPU OOM - descarregando modelo")
@@ -315,10 +436,12 @@ class Transcriber:
                 raise RuntimeError("GPU sem memoria. Modelo descarregado. Tente novamente.") from e
             raise
         finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            if norm_path and norm_path != tmp_path and os.path.exists(norm_path):
-                os.unlink(norm_path)
+            for p in set(filter(None, [tmp_path, denoised_path, norm_path])):
+                if os.path.exists(p):
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
 
     def unload(self):
         with self._lock:

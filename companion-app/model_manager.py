@@ -19,8 +19,18 @@ MODELS = {
         "size_mb": 3100,
         "min_vram_gb": 10,
         "precision": "Excelente",
-        "description": "Melhor precisão - ideal para RTX 4070+",
+        "description": "Melhor precisão geral - ideal para RTX 4070+",
         "url": "https://huggingface.co/Systran/faster-whisper-large-v3",
+        "category": "general",
+    },
+    "large-v3-pt-br": {
+        "repo": "jlondonobo/whisper-large-v3-pt-cv17-ct2",
+        "size_mb": 3100,
+        "min_vram_gb": 10,
+        "precision": "Excelente PT-BR",
+        "description": "Fine-tuned para PT-BR - superior em sotaques e gírias",
+        "url": "https://huggingface.co/jlondonobo/whisper-large-v3-pt-cv17-ct2",
+        "category": "pt-br",
     },
     "medium": {
         "repo": "Systran/faster-whisper-medium",
@@ -29,6 +39,7 @@ MODELS = {
         "precision": "Muito boa",
         "description": "Bom equilíbrio entre velocidade e precisão - RTX 3060/4060",
         "url": "https://huggingface.co/Systran/faster-whisper-medium",
+        "category": "general",
     },
     "small": {
         "repo": "Systran/faster-whisper-small",
@@ -37,6 +48,7 @@ MODELS = {
         "precision": "Boa",
         "description": "Rápido e leve - GTX 1060/1070",
         "url": "https://huggingface.co/Systran/faster-whisper-small",
+        "category": "general",
     },
     "base": {
         "repo": "Systran/faster-whisper-base",
@@ -45,6 +57,7 @@ MODELS = {
         "precision": "Razoável",
         "description": "Muito rápido, precisão básica",
         "url": "https://huggingface.co/Systran/faster-whisper-base",
+        "category": "general",
     },
     "tiny": {
         "repo": "Systran/faster-whisper-tiny",
@@ -53,6 +66,7 @@ MODELS = {
         "precision": "Baixa",
         "description": "Ultra rápido - apenas para testes",
         "url": "https://huggingface.co/Systran/faster-whisper-tiny",
+        "category": "general",
     },
 }
 
@@ -117,6 +131,7 @@ class ModelManager:
                 "downloaded": self.is_downloaded(name),
                 "recommended": name == recommended,
                 "url": info["url"],
+                "category": info.get("category", "general"),
             })
         return result
 

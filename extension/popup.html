@@ -182,6 +182,10 @@
 			background: #008069;
 			color: white;
 		}
+		.badge-ptbr {
+			background: #2196F3;
+			color: white;
+		}
 
 		.model-btn {
 			padding: 3px 8px;
@@ -319,6 +323,33 @@
 			display: none;
 		}
 		.precision-warn.visible { display: block; }
+
+		/* Update banner */
+		.update-banner {
+			padding: 8px 12px;
+			background: #1a3a2a;
+			border: 1px solid #008069;
+			border-radius: 8px;
+			margin-bottom: 12px;
+			font-size: 12px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+
+		/* Language selector */
+		.language-select {
+			background: #1a262d;
+			color: #e9edef;
+			border: 1px solid #2a3942;
+			border-radius: 6px;
+			padding: 4px 8px;
+			font-size: 12px;
+			cursor: pointer;
+			outline: none;
+		}
+		.language-select:hover { border-color: #008069; }
+		.language-select:focus { border-color: #008069; }
 		</style>
 	</head>
 	<body>
@@ -348,6 +379,13 @@
 			<div class="model-item" style="color: #8696a0;">Carregando...</div>
 		</div>
 
+		<div id="gpu-selector-container" class="gpu-selector-container" style="display:none">
+			<div class="section-header">
+				<div class="section-title">GPU Ativa</div>
+			</div>
+			<select id="gpu-select" class="language-select" style="width:100%;margin-bottom:8px"></select>
+		</div>
+
 		<div class="gpu-controls">
 			<button class="gpu-btn gpu-btn-load" id="btn-load" disabled>Subir Modelo na GPU</button>
 			<button class="gpu-btn gpu-btn-unload" id="btn-unload" disabled>Limpar GPU</button>
@@ -355,6 +393,27 @@
 
 		<div class="gpu-controls">
 			<button class="gpu-btn" id="btn-clear-cache" style="background:#ff9800;font-size:11px">Limpar Transcrições (re-transcrever)</button>
+		</div>
+
+		<div class="precision-section">
+			<div class="precision-header">
+				<span class="precision-title">Idioma</span>
+				<select id="language-select" class="language-select">
+					<option value="auto">Auto-detectar</option>
+					<option value="pt" selected>Português (BR)</option>
+					<option value="en">English</option>
+					<option value="es">Español</option>
+					<option value="fr">Français</option>
+					<option value="de">Deutsch</option>
+					<option value="it">Italiano</option>
+					<option value="ja">日本語</option>
+					<option value="zh">中文</option>
+					<option value="ko">한국어</option>
+					<option value="ru">Русский</option>
+					<option value="ar">العربية</option>
+					<option value="hi">हिन्दी</option>
+				</select>
+			</div>
 		</div>
 
 		<div class="precision-section">
@@ -373,6 +432,11 @@
 		</div>
 
 		<div class="log-area" id="log-area"></div>
+
+		<div id="update-banner" class="update-banner" style="display:none">
+			<span id="update-text"></span>
+			<button id="btn-update" class="model-btn model-btn-download" style="margin-left:8px">Baixar</button>
+		</div>
 
 		<p class="info-text">
 			Clique no botão <b>"Transcrever"</b> ao lado de qualquer áudio no WhatsApp Web.

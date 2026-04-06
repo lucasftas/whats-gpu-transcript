@@ -9,7 +9,7 @@ const PRECISION_PRESETS = [
 ];
 
 chrome.runtime.onMessage.addListener(async (request, sender) => {
-	const { id, audioBase64 } = request;
+	const { id, audioBase64, context } = request;
 	if (!id || !audioBase64) return;
 
 	// Health check first
@@ -37,14 +37,16 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
 	}
 	const blob = new Blob([bytes], { type: "audio/ogg" });
 
-	// Read precision setting
+	// Read precision and language settings
 	let precisionParams = PRECISION_PRESETS[1]; // default: Balanceado
+	let language = "pt";
 	try {
-		const stored = await chrome.storage.local.get("precisionLevel");
+		const stored = await chrome.storage.local.get(["precisionLevel", "language"]);
 		const level = stored.precisionLevel != null ? stored.precisionLevel : 1;
 		precisionParams = PRECISION_PRESETS[level] || PRECISION_PRESETS[1];
+		language = stored.language || "pt";
 	} catch (e) {
-		// use default
+		// use defaults
 	}
 
 	// Transcribe with retry
@@ -57,6 +59,8 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
 			const formData = new FormData();
 			formData.append("file", blob, "audio.ogg");
 			formData.append("precision", JSON.stringify(precisionParams));
+			if (context) formData.append("context", context);
+			formData.append("language", language);
 
 			const resp = await fetch(`${API_URL}/transcribe`, {
 				method: "POST",
@@ -80,7 +84,7 @@ chrome.runtime.onMessage.addListener(async (request, sender) => {
 			if (error && resp.status === 503) errorType = "oom";
 			else if (error) errorType = "server";
 
-			const record = { transcription, error, errorType };
+			const record = { transcription, error, errorType, words: data.words || [] };
 			chrome.tabs.sendMessage(sender.tab.id, { id, record });
 
 			if (!error) {
