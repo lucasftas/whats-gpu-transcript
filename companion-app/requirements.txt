@@ -5,3 +5,5 @@ flask>=3.0.0
 waitress>=3.0.0
 requests>=2.31.0
 nvidia-cublas-cu12
+noisereduce>=3.0.0
+numpy>=1.24.0

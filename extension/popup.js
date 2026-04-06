@@ -19,6 +19,9 @@ const precisionSlider = document.getElementById("precision-slider");
 const precisionValue = document.getElementById("precision-value");
 const precisionDesc = document.getElementById("precision-desc");
 const precisionWarn = document.getElementById("precision-warn");
+const languageSelect = document.getElementById("language-select");
+const gpuSelectorContainer = document.getElementById("gpu-selector-container");
+const gpuSelect = document.getElementById("gpu-select");
 
 let pollTimer = null;
 let healthTimer = null;
@@ -135,6 +138,7 @@ function renderModels(data) {
 		if (m.downloaded) item.style.cursor = "pointer";
 
 		const statusIcon = m.downloaded ? "\u2705" : (isDownloading && m.name === downloadingName ? "\u23F3" : "\u2B07\uFE0F");
+		const ptbrBadge = m.category === "pt-br" ? `<span class="badge badge-ptbr">PT-BR</span>` : "";
 		const badge = m.recommended ? `<span class="badge badge-rec">Recomendado</span>` : "";
 		const sizeText = m.size_mb >= 1000 ? `${(m.size_mb / 1000).toFixed(1)} GB` : `${m.size_mb} MB`;
 
@@ -154,7 +158,7 @@ function renderModels(data) {
 		item.innerHTML = `
 			<span class="model-status">${statusIcon}</span>
 			<div class="model-info">
-				<div class="model-name">${m.name} ${badge}</div>
+				<div class="model-name">${m.name} ${badge}${ptbrBadge}</div>
 				<div class="model-desc">${m.precision} - ${m.description}</div>
 			</div>
 			<span class="model-size">${sizeText}</span>
@@ -445,6 +449,86 @@ chrome.storage.local.get("precisionLevel", (data) => {
 });
 
 // ---------------------------------------------------------------------------
+// Language selector
+// ---------------------------------------------------------------------------
+languageSelect.addEventListener("change", () => {
+	chrome.storage.local.set({ language: languageSelect.value });
+});
+
+// Load saved language
+chrome.storage.local.get("language", (data) => {
+	languageSelect.value = data.language || "pt";
+});
+
+// ---------------------------------------------------------------------------
+// GPU selector (multi-GPU)
+// ---------------------------------------------------------------------------
+async function fetchGpus() {
+	try {
+		const resp = await fetch(`${API_URL}/gpus`);
+		if (!resp.ok) return;
+		const data = await resp.json();
+		if (data.gpus && data.gpus.length > 1) {
+			gpuSelectorContainer.style.display = "block";
+			gpuSelect.innerHTML = "";
+			data.gpus.forEach((gpu) => {
+				const opt = document.createElement("option");
+				opt.value = gpu.index;
+				opt.textContent = `GPU ${gpu.index}: ${gpu.name} (${gpu.vram_gb} GB)`;
+				if (gpu.index === data.active_gpu) opt.selected = true;
+				gpuSelect.appendChild(opt);
+			});
+		}
+	} catch (e) {
+		// ignore
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Update checker
+// ---------------------------------------------------------------------------
+async function checkForUpdate() {
+	try {
+		const resp = await fetch(`${API_URL}/update/check`);
+		if (!resp.ok) return;
+		const data = await resp.json();
+		if (data.available) {
+			const banner = document.getElementById("update-banner");
+			const text = document.getElementById("update-text");
+			const btn = document.getElementById("btn-update");
+			text.textContent = `Nova versão: ${data.version}`;
+			banner.style.display = "flex";
+			btn.addEventListener("click", () => {
+				const url = data.download_url || data.release_url;
+				if (url) chrome.tabs.create({ url });
+			});
+		}
+	} catch (e) {
+		// ignore
+	}
+}
+
+gpuSelect.addEventListener("change", async () => {
+	const idx = parseInt(gpuSelect.value);
+	try {
+		const resp = await fetch(`${API_URL}/gpu/select`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ index: idx }),
+		});
+		const data = await resp.json();
+		if (resp.ok) {
+			addLog(`GPU ${idx}: ${data.gpu.name} selecionada`, "success");
+			await checkHealth();
+		} else {
+			addLog(`Erro: ${data.error}`, "error");
+		}
+	} catch (e) {
+		addLog("Erro ao trocar GPU", "error");
+	}
+});
+
+// ---------------------------------------------------------------------------
 // Clear transcription cache
 // ---------------------------------------------------------------------------
 btnClearCache.addEventListener("click", async () => {
@@ -466,6 +550,8 @@ btnClearCache.addEventListener("click", async () => {
 	const online = await checkHealth();
 	if (online) {
 		await fetchModels();
+		await fetchGpus();
+		checkForUpdate();
 		startPolling();
 	}
 	healthTimer = setInterval(async () => {

@@ -2,7 +2,7 @@
 ; Compila com: ISCC.exe installer.iss
 
 #define MyAppName "WhatsGPU"
-#define MyAppVersion "1.1.3"
+#define MyAppVersion "1.1.4"
 #define MyAppPublisher "WhatsGPU"
 #define MyAppExeName "Whats GPU.exe"
 
@@ -34,6 +34,7 @@ Name: "autostart"; Description: "Iniciar com o Windows"; GroupDescription: "Opç
 ; Modelos Whisper
 Name: "model_small"; Description: "small (466 MB) — Rápido e leve (Recomendado)"; GroupDescription: "Baixar modelos Whisper (após instalação):"; Flags: checkedonce
 Name: "model_large"; Description: "large-v3 (3.1 GB) — Melhor precisão (RTX 4070+)"; GroupDescription: "Baixar modelos Whisper (após instalação):"
+Name: "model_large_ptbr"; Description: "large-v3-pt-br (3.1 GB) — Fine-tuned PT-BR (RTX 4070+)"; GroupDescription: "Baixar modelos Whisper (após instalação):"
 Name: "model_medium"; Description: "medium (1.5 GB) — Bom equilíbrio (RTX 3060/4060)"; GroupDescription: "Baixar modelos Whisper (após instalação):"
 Name: "model_base"; Description: "base (142 MB) — Precisão básica, muito rápido"; GroupDescription: "Baixar modelos Whisper (após instalação):"
 Name: "model_tiny"; Description: "tiny (75 MB) — Apenas para testes"; GroupDescription: "Baixar modelos Whisper (após instalação):"
@@ -85,9 +86,10 @@ begin
   case Index of
     0: Result := 466;   // small
     1: Result := 3100;  // large-v3
-    2: Result := 1500;  // medium
-    3: Result := 142;   // base
-    4: Result := 75;    // tiny
+    2: Result := 3100;  // large-v3-pt-br
+    3: Result := 1500;  // medium
+    4: Result := 142;   // base
+    5: Result := 75;    // tiny
   else
     Result := 0;
   end;
@@ -98,9 +100,10 @@ begin
   case Index of
     0: Result := 'small';
     1: Result := 'large-v3';
-    2: Result := 'medium';
-    3: Result := 'base';
-    4: Result := 'tiny';
+    2: Result := 'large-v3-pt-br';
+    3: Result := 'medium';
+    4: Result := 'base';
+    5: Result := 'tiny';
   else
     Result := '';
   end;
@@ -138,7 +141,7 @@ begin
   begin
     // Tasks de modelo começam no índice 2 (após desktopicon=0, autostart=1)
     ModelTaskStart := 2;
-    for i := 0 to 4 do
+    for i := 0 to 5 do
     begin
       ModelName := GetModelDirName(i);
       if IsModelDownloaded(ModelName) then
@@ -172,7 +175,7 @@ begin
   begin
     ModelTaskStart := 2;
     NeededMB := 0;
-    for i := 0 to 4 do
+    for i := 0 to 5 do
     begin
       // Só contar modelos selecionados que ainda não estão baixados
       if WizardForm.TasksList.Checked[ModelTaskStart + i] then
@@ -216,6 +219,11 @@ begin
   begin
     if Models <> '' then Models := Models + ',';
     Models := Models + 'large-v3';
+  end;
+  if WizardIsTaskSelected('model_large_ptbr') then
+  begin
+    if Models <> '' then Models := Models + ',';
+    Models := Models + 'large-v3-pt-br';
   end;
   if WizardIsTaskSelected('model_medium') then
   begin

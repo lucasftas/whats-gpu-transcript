@@ -15,8 +15,8 @@ window.addEventListener("AudioToText:cache", async (event) => {
 
 // page.js sends audio data for transcription
 window.addEventListener("AudioToText:transcript", (event) => {
-	const { id, audioBase64 } = event.detail;
-	chrome.runtime.sendMessage({ id, audioBase64 });
+	const { id, audioBase64, context } = event.detail;
+	chrome.runtime.sendMessage({ id, audioBase64, context });
 });
 
 // page.js requests status polling (content script can bypass page CSP)

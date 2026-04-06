@@ -206,6 +206,34 @@
 	}
 
 	// ---------------------------------------------------------------------------
+	// Context extraction: grab recent text messages for dynamic prompt
+	// ---------------------------------------------------------------------------
+	function getConversationContext(maxMessages = 5, maxChars = 300) {
+		const texts = [];
+		try {
+			// Get visible text messages from the current chat panel
+			const msgElements = document.querySelectorAll(
+				'[data-id] .selectable-text.copyable-text [class*="quoted"], [data-id] .selectable-text.copyable-text span[dir="ltr"]'
+			);
+			const seen = new Set();
+			const allMsgs = [...msgElements].reverse(); // most recent first
+			for (const el of allMsgs) {
+				const text = el.innerText?.trim();
+				if (!text || text.length < 3 || seen.has(text)) continue;
+				// Skip transcriptions we injected
+				if (el.closest(".wt-transcription")) continue;
+				seen.add(text);
+				texts.push(text);
+				if (texts.length >= maxMessages) break;
+			}
+		} catch (e) {
+			// Fail silently — context is optional
+		}
+		const context = texts.reverse().join(". ");
+		return context.length > maxChars ? context.slice(-maxChars) : context;
+	}
+
+	// ---------------------------------------------------------------------------
 	// Transcription click handler
 	// ---------------------------------------------------------------------------
 	async function onTranscribeClick(id, el, btn) {
@@ -257,6 +285,9 @@
 			const blob = await response.blob();
 			const audioBase64 = await blobToBase64(blob);
 
+			// Grab conversation context for dynamic prompt
+			const conversationContext = getConversationContext();
+
 			// Send for transcription via content.js bridge with timeout
 			const record = await Promise.race([
 				new Promise((resolve) => {
@@ -267,7 +298,7 @@
 					);
 					window.dispatchEvent(
 						new CustomEvent("AudioToText:transcript", {
-							detail: { id, audioBase64 },
+							detail: { id, audioBase64, context: conversationContext },
 						})
 					);
 				}),
@@ -335,16 +366,40 @@
 		});
 	}
 
+	function _confidenceColor(confidence) {
+		// Green (high) → Yellow (medium) → Red (low)
+		if (confidence >= 0.85) return "inherit";      // high confidence — normal color
+		if (confidence >= 0.6) return "#f0c040";        // medium — yellow/amber
+		return "#ef4146";                                // low — red
+	}
+
 	function appendText(el, record) {
 		if (el.querySelector(".wt-transcription")) return;
 
 		const txt = document.createElement("div");
 		txt.className = "wt-transcription selectable-text copyable-text";
-		txt.innerText = record.transcription;
 
 		if (record.error) {
+			txt.innerText = record.transcription;
 			txt.style.cssText = `max-width: ${el.clientWidth}px; overflow: hidden; padding: 10px 20px; color: #ef4146; font-size: 12px; font-weight: bold;`;
+		} else if (record.words && record.words.length > 0) {
+			// Render words with confidence-based coloring
+			txt.style.cssText = `max-width: ${el.clientWidth}px; overflow: hidden; padding: 10px 20px; font-size: 13px; color: inherit; line-height: 1.5;`;
+			record.words.forEach((w) => {
+				const span = document.createElement("span");
+				span.textContent = w.word + " ";
+				const color = _confidenceColor(w.confidence);
+				if (color !== "inherit") {
+					span.style.color = color;
+					span.title = `Confiança: ${Math.round(w.confidence * 100)}%`;
+					span.style.cursor = "help";
+					span.style.borderBottom = `1px dotted ${color}`;
+				}
+				txt.appendChild(span);
+			});
 		} else {
+			// Fallback: plain text (no word data)
+			txt.innerText = record.transcription;
 			txt.style.cssText = `max-width: ${el.clientWidth}px; overflow: hidden; padding: 10px 20px; font-size: 13px; color: inherit;`;
 		}
 
